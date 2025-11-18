@@ -35,7 +35,7 @@ sudo apt install net-tools curl git htop nano -y
 ## Para configurar las ip staticas
 ### VM1 - minio-vault
 ```bash
-sudo nano /etc/netplan/00-installer-config.yaml
+sudo nano /etc/netplan/50-cloud-init.yaml
 ```
 >Esta es la configuracion de red
 dentro de la configuracion de red
@@ -72,7 +72,7 @@ sudo netfilter-persistent save
 ### VM2-app-node
 abrir la configuracion de red
 ```bash
-sudo nano /etc/netplan/00-installer-config.yaml
+sudo nano /etc/netplan/50-cloud-init.yaml
 ```
 alli dentro
 ```bash
@@ -97,7 +97,7 @@ sudo netplan apply
 ### VM3-db-node
 abrir la configuracion de red
 ```bash
-sudo nano /etc/netplan/00-installer-config.yaml
+sudo nano /etc/netplan/50-cloud-init.yaml
 ```
 alli dentro
 ```bash
@@ -122,7 +122,7 @@ sudo netplan apply
 ### VM4-drp-control
 abrir la configuracion de red
 ```bash
-sudo nano /etc/netplan/00-installer-config.yaml
+sudo nano /etc/netplan/50-cloud-init.yaml
 ```
 alli dentro
 ```bash
