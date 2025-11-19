@@ -2,6 +2,13 @@
 Para este proyecto se usara 4 maquinas:
 la direccion ip interna que usaremos sera 192.168.50.x
 
+Restic para el motor.
+
+Systemd para el cronómetro.
+
+LVM para la integridad de los datos.
+
+Ansible para la resurrección del sistema.
 
 #  Fase : Arquitectura de Hierro
 
