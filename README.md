@@ -226,3 +226,542 @@ Para verificar Debería ver algo como "API: http://172.17.0.2:9000"
 docker logs minio
 ```
 ## VM4-drp-control
+Para descargar el ejecutable de minio cliente y lo guarda en una carpeta
+```bash
+curl https://dl.min.io/client/mc/release/linux-amd64/mc \
+  --create-dirs \
+  -o $HOME/minio-binaries/mc
+```
+Le damos permisos de ejecucion. sin esto la maquina pensara que solo un archivo de texto
+```bash
+chmod +x $HOME/minio-binaries/mc
+```
+para que cuando mc este escribiendo, se busque también en esta carpeta
+```bash
+export PATH=$PATH:$HOME/minio-binaries/
+```
+Guarda esa configuración para siempre, para que no tengas que hacerlo cada vez que inicies sesión
+```bash
+echo 'export PATH=$PATH:$HOME/minio-binaries/' >> ~/.bashrc
+```
+Para recargar el perfil
+```bash
+source ~/.bashrc
+```
+con esto unimos la vm4 con la vm1
+mi-boveda asi le llamaremos a la vm1 
+```bash
+mc alias set mi-boveda http://192.168.50.10:9000 admin SuperSecretKey123
+```
+> te deberia aparecer un texto que diga Added `mi-boveda` successfully
+para crear un bucket es decir un contenedor logico dentro de minio llamado backup-repo
+aqui es donde restic guardara los datos cifrados
+```bash
+mc mb mi-boveda/backup-repo
+```
+deberia aparecer la fecha, tamanio y backup-repo/
+```bash
+mc ls mi-boveda
+```
+## VM2 - App Node
+Para actualizar repositorios e intarlar restic
+```bash
+sudo apt update && sudo apt install restic -y
+```
+Para inicializar el repositorio
+```bash
+export AWS_ACCESS_KEY_ID="admin"
+```
+```bash
+export AWS_SECRET_ACCESS_KEY="SuperSecretKey123"
+```
+```bash
+export RESTIC_REPOSITORY="s3:http://192.168.50.10:9000/backup-repo"
+```
+```bash
+export RESTIC_PASSWORD="EncryptionPasswordDoNotLose"
+```
+Para iniciar restic
+```bash
+restic init
+```
+> te deberia salir algo con "created restic repository" continuando por un codigo de hash ejemplo 63832b86e5
+para hacer una prueba, generaremos un archivo basura
+```bash
+sudo mkdir -p /var/www/html
+```
+```bash
+echo "Hola Mundo Resiliente. Si lees esto, la red no ha colapsado." | sudo tee /var/www/html/index.html
+```
+para backup
+```hash
+restic backup /var/www/html --tag "app-deploy-v1"
+```
+> si te sale algo como snapshot <ID> saved donde ID es un codigo entonces esta bien
+## VM3-db-node
+Para actualizar repositorios e instalar restic
+```hash
+sudo apt update && sudo apt install restic -y
+```
+### Importante no fallar
+Inicializar el disco físico
+```hash
+sudo pvcreate /dev/sdb
+```
+Crear el Grupo de Volumen
+```hash
+sudo vgcreate vg_datos /dev/sdb
+```
+Crear el Volumen Lógico
+OJO: Asignamos 6GB. Dejamos 4GB libres para los snapshots
+Un snapshot necesita espacio libre en el VG para crecer
+```bash
+sudo lvcreate -L 6G -n lv_mysql vg_datos
+```
+Formatear y Montar
+```bash
+sudo mkfs.ext4 /dev/vg_datos/lv_mysql
+```
+```bash
+sudo mkdir -p /mnt/mysql-data
+```
+```bash
+sudo mount /dev/vg_datos/lv_mysql /mnt/mysql-data
+```
+Sembraremos datos falsos como simulación de BD
+```bash
+sudo mkdir -p /mnt/mysql-data/db_files
+```
+```bash
+sudo touch /mnt/mysql-data/db_files/users.ibd
+```
+```bash
+echo "DB_PASSWORD=SuperSecretKey" | sudo tee /mnt/mysql-data/db_files/config.php
+```
+Crearemos un script para Congelar (Snapshot) -> Copiar (Backup) -> Descongelar (Remove)
+```bash
+sudo nano /usr/local/bin/backup_db.sh
+```
+Dentro pondremos el script:
+```bash
+#!/bin/bash
+set -e  # Abortar si cualquier comando falla.
+
+# --- Configuración del Búnker ---
+export AWS_ACCESS_KEY_ID="admin"
+export AWS_SECRET_ACCESS_KEY="SuperSecretKey123"
+# Apunta al MinIO (VM1)
+export RESTIC_REPOSITORY="s3:http://192.168.50.10:9000/backup-repo"
+export RESTIC_PASSWORD="EncryptionPasswordDoNotLose"
+
+# Variables LVM
+VG_NAME="vg_datos"
+LV_NAME="lv_mysql"
+SNAP_NAME="snap_backup"
+MOUNT_POINT="/mnt/snapshot_db"
+
+echo "[1] Creando Snapshot (Congelando estado en el tiempo)..."
+# Creamos un snapshot de 1GB. 
+# Si la base de datos escribe más de 1GB de cambios durante el backup, el snapshot colapsa.
+lvcreate -L 1G -s -n $SNAP_NAME /dev/$VG_NAME/$LV_NAME
+
+echo "[2] Montando Snapshot (Solo lectura)..."
+mkdir -p $MOUNT_POINT
+mount -o ro /dev/$VG_NAME/$SNAP_NAME $MOUNT_POINT
+
+echo "[3] Enviando a la Bóveda..."
+# Hacemos backup del PUNTO DE MONTAJE, no del disco vivo.
+restic backup $MOUNT_POINT --tag "db-consistent-snap"
+
+echo "[4] Limpieza de la escena del crimen..."
+umount $MOUNT_POINT
+lvremove -y /dev/$VG_NAME/$SNAP_NAME
+
+echo "Operación completada. La base de datos ni se enteró."
+```
+> Guarda (Ctrl+O, Enter, Ctrl+X)
+para darle los permisos
+```bash
+sudo chmod +x /usr/local/bin/backup_db.sh
+```
+Inicializar el repo desde VM3 también
+```bash
+export AWS_ACCESS_KEY_ID="admin"
+```
+```bash
+export AWS_SECRET_ACCESS_KEY="SuperSecretKey123"
+```
+```bash
+export RESTIC_REPOSITORY="s3:http://192.168.50.10:9000/backup-repo"
+```
+```bash
+export RESTIC_PASSWORD="EncryptionPasswordDoNotLose"
+```
+```bash
+restic init || echo "Repo detectado."
+```
+> Este ultimo dara error si ya existe, en ese caso solo lo ignoras
+para ejecutar el script
+```bash
+sudo /usr/local/bin/backup_db.sh
+```
+## VM4-Admin-Node
+para ver que los bloques encriptados aterrizaron en la Bóveda
+```bash
+mc ls mi-boveda/backup-repo/data/
+```
+> deberia salir algo como esto o parecido en tanto a la estructura:
+> [2025-11-19 15:46:06 UTC]     0B 34/
+> [2025-11-19 15:46:06 UTC]     0B 8a/
+> [2025-11-19 15:46:06 UTC]     0B 99/
+> [2025-11-19 15:46:06 UTC]     0B f4/
+
+# Fase 3: El Cronómetro, Automatización con Systemd
+reemplazaremos cron con Systemd Timers por que este maneja dependencias, reintentos y deja logs binarios (journalctl) que podemos auditar.
+## VM2-App-Node
+Crea el archivo del script para el backup
+```bash
+sudo nano /usr/local/bin/backup_app.sh
+```
+dentro del script:
+```bash
+#!/bin/bash
+set -e
+
+# Credenciales
+export AWS_ACCESS_KEY_ID="admin"
+export AWS_SECRET_ACCESS_KEY="SuperSecretKey123"
+export RESTIC_REPOSITORY="s3:http://192.168.50.10:9000/backup-repo"
+export RESTIC_PASSWORD="EncryptionPasswordDoNotLose"
+
+# 1. El Backup
+echo "Iniciando backup de App..."
+restic backup /var/www/html --tag "app-auto"
+
+# 2. La Limpieza (Política de Retención)
+echo "Aplicando política de retención..."
+restic forget --keep-daily 7 --keep-weekly 4 --prune
+```
+> Guarda (Ctrl+O, Enter) y sal (Ctrl+X)
+para que tenga permisos de ejecucion
+```bash
+sudo chmod +x /usr/local/bin/backup_app.sh
+```
+Esto le dira a systemd qué ejecutar
+```bash
+sudo nano /etc/systemd/system/backup-app.service
+```
+y dentro:
+```bash
+[Unit]
+Description=Restic Backup para Aplicacion
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/backup_app.sh
+User=root
+```
+Le decimos a systemd cuándo disparar el servicio
+```bash
+sudo nano /etc/systemd/system/backup-app.timer
+```
+dentro:
+```bash
+[Unit]
+Description=Ejecuta backup de App cada minuto (Demo)
+
+[Timer]
+OnCalendar=*:*
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+> OnCalendar=*:*:
+> El primer * es la Hora (todas las horas).
+> El : es el separador.
+> El segundo * es el Minuto (todos los minutos).
+
+Systemd calcula el siguiente punto en el tiempo que coincida con ese patrón
+Recargamos el cerebro de systemd y encendemos el timer
+```bash
+sudo systemctl daemon-reload
+```
+```bash
+sudo systemctl enable --now backup-app.timer
+```
+para verificar
+```bash
+systemctl list-timers
+```
+> deberia aparecer backup-app.timer y la columna left en el que debe de estar menos de 1 minuto
+## VM3-db-node
+```bash
+ls -l /usr/local/bin/backup_db.sh
+```
+> Si no sale verde o con x, dale sudo chmod +x /usr/local/bin/backup_db.sh
+Crear el Servicio (.service)
+```bash
+sudo nano /etc/systemd/system/backup-db.service
+```
+dentro:
+```bash
+[Unit]
+Description=Restic Backup para MariaDB (LVM Snapshot)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/backup_db.sh
+User=root
+```
+Crear el Timer (.timer)
+```bash
+sudo nano /etc/systemd/system/backup-db.timer
+```
+dentro:
+```bash
+[Unit]
+Description=Ejecuta backup de DB cada minuto (Demo)
+
+[Timer]
+OnCalendar=*:*
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+Para activar y verificar:
+```bash
+sudo systemctl daemon-reload
+```
+```bash
+sudo systemctl enable --now backup-db.timer
+```
+para verificar:
+```bash
+systemctl list-timers
+```
+> el primer left debe estar en menos o igual de un minuto, si no lo esta, prueba de nuevo el mismo comando, a veces tarda en actualizarse
+> y si aun no sigue, revisa las configuraciones
+para verificar los logs("Operación completada" y "snapshot saved"):
+```bash
+journalctl -u backup-db.service -n 20 --no-pager
+```
+## VM2 - App Node
+para verificar los logs
+```bash
+journalctl -u backup-app.service -n 20 --no-pager
+```
+## VM4-drp-control
+para ver los nuevo snapshot que se deberian crear cada minuto:
+```bash
+mc ls -r mi-boveda/backup-repo/snapshots/
+```
+> El ciclo de vida de tu minuto:
+
+> 19:29: Se crea el Snapshot A. Restic ve que es el último de hoy. Se lo queda.
+
+> 19:30: Se crea el Snapshot B.
+
+> 19:30 (medio segundo después): Se ejecuta el forget. Restic ve que tiene A (19:29) y B (19:30) para el mismo día. La política dice "guarda 1 por día". Restic borra A y se queda con B.
+
+# Fase 4: DRP con Ansible
+## VM4-drp-control
+para crear y entrar al directorio para la logica de recuperacion
+```bash
+mkdir -p ~/ansible-drp && cd ~/ansible-drp
+```
+para el inventario o victimas de Ansible
+```bash
+nano hosts
+```
+dentro:
+```bash
+[app_servers]
+192.168.50.20 ansible_user=jhoel
+
+[db_servers]
+192.168.50.30 ansible_user=jhoel
+```
+> Guarda (Ctrl+O, Enter) y sal (Ctrl+X).
+para ver que tenga coneccion con el inventario de ansible
+```bash
+ansible all -i hosts -m ping
+```
+> deveria apaarecer "ping": "pong" y SUCCESS si esta bien
+aun dentro de la VM4-drp-control y dentro de ~/ansible-drp
+```bash
+nano restore_app.yml
+```
+ahi dentro de restore_app va este codigo yaml:
+```bash
+---
+- name: DRP - Restauración de Emergencia Aplicación
+  hosts: app_servers
+  become: yes
+  vars:
+    restore_path: "/tmp/rescate_app"
+    repo_url: "s3:http://192.168.50.10:9000/backup-repo"
+    env_vars:
+      AWS_ACCESS_KEY_ID: "admin"
+      AWS_SECRET_ACCESS_KEY: "SuperSecretKey123"
+      RESTIC_REPOSITORY: "{{ repo_url }}"
+      RESTIC_PASSWORD: "EncryptionPasswordDoNotLose"
+
+  tasks:
+    - name: "[1] Asegurar que Restic esté instalado"
+      apt:
+        name: restic
+        state: present
+        update_cache: yes
+
+    - name: "[2] Crear directorio de zona segura"
+      file:
+        path: "{{ restore_path }}"
+        state: directory
+        mode: '0755'
+
+    - name: "[3] Ejecutar Restauración desde la Bóveda"
+      shell: |
+        export AWS_ACCESS_KEY_ID="{{ env_vars.AWS_ACCESS_KEY_ID }}"
+        export AWS_SECRET_ACCESS_KEY="{{ env_vars.AWS_SECRET_ACCESS_KEY }}"
+        export RESTIC_PASSWORD="{{ env_vars.RESTIC_PASSWORD }}"        
+        restic -r {{ repo_url }} restore latest --tag "app-deploy-v1" --target {{ restore_path }}
+      register: restore_out
+
+    - name: "[4] Reporte de Operación"
+      debug:
+        msg: 
+          - "Restauración Exitosa en: {{ restore_path }}"
+          - "Log Restic: {{ restore_out.stdout }}"
+```
+> Guarda (Ctrl+O, Enter) y sal (Ctrl+X)
+
+# Para probar si funciona:
+## VM2 - App Node
+Para probar que funciona
+verificamos que tenemos aqui
+```bash
+sudo cat /var/www/html/index.html
+```
+borramos index.html
+```bash
+sudo rm -rf /var/www/html/index.html
+```
+verificamos que se haya borrado
+```bash
+ls -l /var/www/html/
+```
+## VM4-drp-control aun en ~/ansible-drp 
+para restaurar:
+
+```bash
+ansible-playbook -i hosts restore_app.yml -K
+```
+
+## VM2 - App Node
+para verificar que volvio 
+```bash
+sudo cat /var/www/html/index.html
+```
+-----
+# Lo de abajo aun no probado pero creo que si funciona xd
+-----
+
+# 🕰️ Manual de Restauración Quirúrgica (Por ID)
+
+**Ubicación:** Todo esto se ejecuta desde la **VM4 (`drp-control`)**.
+**Directorio de trabajo:** Asegúrate de estar dentro del búnker:
+
+```bash
+cd ~/ansible-drp
+```
+
+## 1\. El Catálogo de Tiempos (Listar Snapshots)
+
+Para ver qué opciones de viaje en el tiempo tienes, consultamos directamente a la Bóveda (MinIO) usando el cliente `mc`.
+
+**Comando:**
+
+```bash
+mc ls -r mi-boveda/backup-repo/snapshots/
+```
+
+**Traducción:**
+
+  * `mc`: MinIO Client.
+  * `ls -r`: Listar recursivamente.
+  * `mi-boveda/...`: La ruta al bucket donde Restic guarda los metadatos de los snapshots.
+
+**Lo que verás (Ejemplo):**
+
+```text
+[2025-11-19 15:12:33 UTC]   242B STANDARD dd90c8b5d82b7478c83d06099e03aae6ce69e58259f01186e02a016b9229b8c0
+[2025-11-19 19:14:20 UTC]   367B STANDARD 3915ff940516a8e32b0f01dbce9a326703e1f5b91929a1fe5eca43c43c4c6d20
+```
+
+**Interpretación:** Los primeros 8 caracteres del nombre del archivo (ej. `dd90c8b5`) son el **Snapshot ID** corto. Esa es tu coordenada de destino.
+
+-----
+
+## 2\. La Modificación del Hechizo (Editar Playbook)
+
+Necesitamos decirle a Ansible que deje de buscar etiquetas (`--tag`) y busque un ID específico.
+
+Abre tu playbook:
+
+```bash
+nano restore_app.yml
+```
+
+Busca la sección `shell` dentro de la tarea **"[3] Ejecutar Restauración..."** y modifícala.
+
+**ANTES (Modo Automático/Etiqueta):**
+
+```yaml
+    - name: "[3] Ejecutar Restauración desde la Bóveda"
+      shell: |
+        export AWS_ACCESS_KEY_ID="{{ env_vars.AWS_ACCESS_KEY_ID }}"
+        export AWS_SECRET_ACCESS_KEY="{{ env_vars.AWS_SECRET_ACCESS_KEY }}"
+        export RESTIC_PASSWORD="{{ env_vars.RESTIC_PASSWORD }}"        
+        # Restaurar usando TAG
+        restic -r {{ repo_url }} restore latest --tag "app-deploy-v1" --target {{ restore_path }}
+      register: restore_out
+```
+
+**DESPUÉS (Modo Quirúrgico/ID):**
+*Reemplaza `<ID_DEL_SNAPSHOT>` con el código que elegiste en el paso 1 (ej. `dd90c8b5`).*
+
+```yaml
+    - name: "[3] Ejecutar Restauración desde la Bóveda"
+      shell: |
+        export AWS_ACCESS_KEY_ID="{{ env_vars.AWS_ACCESS_KEY_ID }}"
+        export AWS_SECRET_ACCESS_KEY="{{ env_vars.AWS_SECRET_ACCESS_KEY }}"
+        export RESTIC_PASSWORD="{{ env_vars.RESTIC_PASSWORD }}"        
+        # Restaurar usando ID ESPECÍFICO
+        restic -r {{ repo_url }} restore dd90c8b5 --target {{ restore_path }}
+      register: restore_out
+```
+
+> **Nota:** Al usar un ID, **borra** las banderas `latest` y `--tag`. Son incompatibles o redundantes cuando especificas el ID directo.
+
+Guarda (`Ctrl+O`, `Enter`) y sal (`Ctrl+X`).
+
+-----
+
+## 3\. La Ejecución (El Botón Rojo)
+
+Lanza el playbook modificado. Ansible pedirá tu contraseña `sudo` (la de `jhoel`).
+
+**Comando:**
+
+```bash
+ansible-playbook -i hosts restore_app.yml -K
+```
+
+**Resultado esperado:**
+Si todo sale bien, Ansible te mostrará un JSON al final confirmando que restauró los archivos desde ese ID específico hacia `/tmp/rescate_app`.
+
+-----
