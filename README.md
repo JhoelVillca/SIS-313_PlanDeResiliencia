@@ -3,7 +3,7 @@ Para este proyecto se usara 4 maquinas:
 la direccion ip interna que usaremos sera 192.168.50.x
 
 
-#  Fase -1: Arquitectura de Hierro
+#  Fase : Arquitectura de Hierro
 
 ##  Especificaciones de Hardware
 - **Host Global**: mínimo 8 GB RAM libres.  
