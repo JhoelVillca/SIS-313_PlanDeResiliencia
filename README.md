@@ -3,9 +3,9 @@ Para este proyecto se usara 4 maquinas:
 la direccion ip interna que usaremos sera 192.168.50.x
 
 
-# 🏗️ Fase -1: Arquitectura de Hierro
+#  Fase -1: Arquitectura de Hierro
 
-## 🖥️ Especificaciones de Hardware
+##  Especificaciones de Hardware
 - **Host Global**: mínimo 8 GB RAM libres.  
 - **Distribución de VMs:**
 
@@ -210,3 +210,19 @@ para darle permisos a minio sobre esa carpeta
 ```bash
 sudo chown -R 1001:1001 /mnt/data
 ```
+pegar este bloque completo en uno, en este caso usaremos de contrasenia SuperSecretKey123 pero en un entorno real debe ser una contrasenia mas dificil
+```bash
+docker run -dt \
+  -p 9000:9000 -p 9001:9001 \
+  --name minio \
+  --restart always \
+  -v /mnt/data:/data \
+  -e "MINIO_ROOT_USER=admin" \
+  -e "MINIO_ROOT_PASSWORD=SuperSecretKey123" \
+  minio/minio server /data --console-address ":9001"
+```
+Para verificar Debería ver algo como "API: http://172.17.0.2:9000"
+```bash
+docker logs minio
+```
+## VM4-drp-control
