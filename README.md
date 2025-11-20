@@ -167,7 +167,7 @@ abrir la configuracion de red
 ```bash
 sudo nano /etc/netplan/50-cloud-init.yaml
 ```
-alli dentro
+ahi dentro
 ```bash
 network:
   version: 2
