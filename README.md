@@ -50,10 +50,10 @@ graph TD
 
 | VM | Hostname | RAM | CPU | Disco OS | Disco Datos | Red |
 |----|----------|-----|-----|----------|-------------|-----|
-| VM1 | `minio-vault` | 2048 MB | 2 | 25 GB | 20 GB (Backups) | NAT + Interna |
-| VM2 | `app-node` | 1024 MB | 1 | 25 GB | - | Interna |
-| VM3 | `db-node` | 1536 MB | 1 | 25 GB | 10 GB (LVM) | Interna |
-| VM4 | `drp-control` | 1024 MB | 1 | 25 GB | - | Interna |
+| VM1 | `minio-vault` | 2048 MB | 2 | 25 GB | 20 GB (Backups) | NAT + Red Interna |
+| VM2 | `app-node` | 1024 MB | 1 | 25 GB | - | Red Interna |
+| VM3 | `db-node` | 1536 MB | 1 | 25 GB | 10 GB (LVM) | Red Interna |
+| VM4 | `drp-control` | 1024 MB | 1 | 25 GB | - | Red Interna |
 
 **Notas clave:**
 - VM1 = Bastion Host (único acceso a internet).  
