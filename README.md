@@ -10,6 +10,38 @@ LVM para la integridad de los datos.
 
 Ansible para la resurrección del sistema.
 
+```mermaid
+graph TD
+    subgraph "Zona Hostil (Internet / Red Externa)"
+        USER[Tu Laptop / Host]
+    end
+
+    subgraph "DMZ / Bastión (192.168.50.10)"
+        VM1[("VM1: MinIO Vault<br>(Docker + S3)")]
+        FW[Firewall / NAT]
+    end
+
+    subgraph "Zona Segura (Red Interna Aislada)"
+        VM2["VM2: App Node<br>(Nginx + Restic)"]
+        VM3[("VM3: DB Node<br>(MariaDB + LVM + Restic)")]
+        VM4{{"VM4: DRP Control<br>(Ansible + Cerebro)"}}
+    end
+
+    %% Conexiones Externas
+    USER -->|"SSH :2222"| FW
+    FW -->|"Port Forward"| VM1
+    VM1 -.->|"NAT Masquerade"| USER
+
+    %% Flujo de Backups (Datos)
+    VM2 -->|"Restic Encriptado"| VM1
+    VM3 -->|"Restic Encriptado"| VM1
+
+    %% Flujo de Orquestación (Control)
+    VM4 -->|"SSH + Ansible"| VM2
+    VM4 -->|"SSH + Ansible"| VM3
+    VM4 -.->|"API S3"| VM1
+
+```
 #  Fase : Arquitectura de Hierro
 
 ##  Especificaciones de Hardware
@@ -157,8 +189,10 @@ sudo netplan apply
 ```
 > # PARA PROBAR QUE TODO ESTA BIEN HASTA ESTE PUNTO CADA MAQUINA DEBE PODER HACER PING A GOOGLE.COM
 ## Generar claves SSH
+Para que Ansible pueda comunicarse a las demas maquinas de forma automatica sin intervención humana entre el orquestador (Ansible) y los nodos operativos. 
 ### VM4-drp-control
 Esto sirve para crear un par de llaves criptográficas una publica y otra privada
+la encriptacion ed25519 son llaves pequeñas, por eso son mas seguras y rapidas
 ```bash
 ssh-keygen -t ed25519 -C "ansible-control" -f ~/.ssh/id_ed25519 -N ""
 ```
@@ -179,16 +213,18 @@ ssh-copy-id -i ~/.ssh/id_ed25519.pub jhoel@192.168.50.30
 > Para probar que funciona, el vm4 debe intentar acceder a cualquier otra maquina
 > si le pide contrasenia entonces algo fallo
 > si es que no le pide la contrasenia ni le deja entrar algo fallo
-> si es que no le pide la contrasenia pero si deja entrar entonces esta bien
+> si es que no le pide la contrasenia pero si deja entrar entonces esta bien -> autenticación exitosa mediante clave pública
+
 
 ## Instalacion de otras Herramientas
 ### VM3-db-node
-Para verificar el los discos propuestos si existes:
+Verificamos que el disco secundario destinado a los snapshots esté disponible:
 ```bash
 lsblk
 ```
-> Debe aparecerte el disco de 10 gb, comunmente aparece como sdb o otro
+> Debe aparecerte el disco de 10 gb, comunmente aparece como sdb
 Para instalar un gestor de volumenes logicos (lvm2)
+que nos permitirá congelar el tiempo (snapshots) sin detener la base de datos
 ```bash
 sudo apt update && sudo apt install lvm2 -y
 ```
@@ -197,23 +233,27 @@ Usaremos Docker para levantar MinIO, asi que instalamos docker
 ```bash
 sudo apt update && sudo apt install docker.io -y
 ```
-para agregar al usuario actual al grupo de usuarios de Docker en el sistema
-Es decir darle permiso a nuestro usario
+> no es el docker oficial si no la version que es mantenido por ubuntu.
+
+Agregamos al usuario actual al grupo docker para administrar contenedores sin invocar sudo constantemente
 ```bash
 sudo usermod -aG docker $USER
 ```
+> Este cambio no tiene efecto inmediato. Debes cerrar sesión (exit) y volver a entrar, o ejecutar newgrp docker para refrescar tus credenciales de grupo. Si ignoras esto, Docker te rechazará.
+
 ## VM4-drp-control
-Instalar ansible para orquestar el DRP es decir automatizar
+Instalar ansible para orquestar el DRP es decir es el cerebro de la operación. Ansible será el encargado de ejecutar la resurrección del sistema
 ```bash
 sudo apt update && sudo apt install ansible -y
 ```
 ## Despliegue de MinIO
 ## VM1-minio-vault
-crearemos esta carpeta para que minio guarde ahi los objetos o datos
+crearemos este directorio que servirá como punto de montaje persistente
+si el contenedor de MinIO muere o se reinicia, los datos dentro de él desaparecen. Al mapear esto al host, aseguramos que los backups sobrevivan a la destrucción del contenedor.
 ```bash
 sudo mkdir -p /mnt/data
 ```
-para darle permisos a minio sobre esa carpeta
+para darle permisos a minio sobre esa carpeta, MinIO corre por seguridad con el UID 1001, no como root. Si no haces esto, el contenedor arranca, intenta escribir en /data y muere con "Permission Denied" es decir por permisos denegados.
 ```bash
 sudo chown -R 1001:1001 /mnt/data
 ```
@@ -228,6 +268,8 @@ docker run -dt \
   -e "MINIO_ROOT_PASSWORD=SuperSecretKey123" \
   minio/minio server /data --console-address ":9001"
 ```
+> La bandera --restart always es crítica; si el servidor se reinicia por un fallo eléctrico o error, el servicio de almacenamiento vuelve a levantar automáticamente sin intervención humana.
+
 Para verificar Debería ver algo como "API: http://172.17.0.2:9000"
 ```bash
 docker logs minio
