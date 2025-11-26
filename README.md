@@ -17,13 +17,11 @@ Este proyecto implementa un **Sistema de Resiliencia Automatizada** diseñado pa
 
 ---
 
-## 🏗️ Arquitectura de la Solución
+##  Arquitectura de la Solución
 
 El sistema se distribuye en **4 Nodos Lógicos** interconectados, diseñados para simular un entorno de producción real donde los servicios (App/DB), el almacenamiento (Backups) y la gestión (Control) están desacoplados para garantizar la supervivencia de los datos incluso si los servidores principales son comprometidos.
 
-
-
-[Image of network star topology]
+# AQUI PONDREMOS LA TOPOLOGIA
 
 
 | Nodo | Rol | Función Crítica |
@@ -60,7 +58,7 @@ El sistema se distribuye en **4 Nodos Lógicos** interconectados, diseñados par
 * **La Solución:** Transformamos el DRP en **Playbooks de Ansible**. Esto nos permite reconstruir el servicio, reinstalar dependencias y restaurar los datos con un solo comando, reduciendo el **RTO (Recovery Time Objective)** de horas a minutos.
 
 ---
-## 📅 Estrategia de Retención de Datos
+##  Estrategia de Retención de Datos
 
 ### Perfil Producción (GFS en un entorno serio)
 En un entorno empresarial real, aplicamos el esquema estándar **Grandfather-Father-Son** para cumplir con auditorías y recuperación a largo plazo:
@@ -101,7 +99,7 @@ Para garantizar la replicabilidad y el éxito del **Sistema de Resiliencia Opera
 
 -----
 
-## 📍 Fase 1: Aprovisionamiento de Infraestructura Base
+## Fase 1: Aprovisionamiento de Infraestructura Base
 **Descripción:**
 Consiste en la creación y configuración inicial de los 4 Nodos Virtuales (VMs) que compondrán el sistema. Se establecen los recursos de hardware virtual (CPU, RAM, Disco) y se instala el sistema operativo base (Ubuntu Server).
 
@@ -111,7 +109,7 @@ Consiste en la creación y configuración inicial de los 4 Nodos Virtuales (VMs)
 
 -----
 
-## 📍 Fase 2: Implementación de Red de Malla (Overlay Network)
+## Fase 2: Implementación de Red de Malla (Overlay Network)
 **Descripción:**
 Despliegue de una red privada virtual (VPN de malla) utilizando **Tailscale/ZeroTier**. Esto crea una capa de red abstracta sobre la infraestructura física, permitiendo que las máquinas se comuniquen de forma segura y encriptada sin depender de la configuración del router local (Wi-Fi de la feria o laboratorio).
 
@@ -122,7 +120,7 @@ Despliegue de una red privada virtual (VPN de malla) utilizando **Tailscale/Zero
 
 -----
 
-## 📍 Fase 3: Despliegue de la Bóveda Inmutable (Object Storage)
+## Fase 3: Despliegue de la Bóveda Inmutable (Object Storage)
 **Descripción:**
 Instalación y configuración de **MinIO** (compatible con Amazon S3) en un entorno contenerizado (Docker). Se configuran las políticas de acceso, usuarios de servicio y persistencia de datos en disco.
 
@@ -133,7 +131,7 @@ Instalación y configuración de **MinIO** (compatible con Amazon S3) en un ento
 
 -----
 
-## 📍 Fase 4: Configuración de Servicios Críticos (Las Víctimas)
+## Fase 4: Configuración de Servicios Críticos (Las Víctimas)
 **Descripción:**
 Puesta en marcha de los servicios que simulan la operación del negocio:
 1.  **Servidor Web (App Node):** Nginx/Apache sirviendo una aplicación de demostración.
@@ -146,7 +144,7 @@ Puesta en marcha de los servicios que simulan la operación del negocio:
 
 -----
 
-## 📍 Fase 5: Integridad de Datos y Volúmenes Lógicos (LVM)
+## Fase 5: Integridad de Datos y Volúmenes Lógicos (LVM)
 **Descripción:**
 Implementación de **LVM (Logical Volume Manager)** en el nodo de Base de Datos. Se migra el almacenamiento de MySQL/MariaDB a un volumen lógico dedicado, permitiendo la gestión avanzada del disco.
 
@@ -156,7 +154,7 @@ Implementación de **LVM (Logical Volume Manager)** en el nodo de Base de Datos.
 
 -----
 
-## 📍 Fase 6: Configuración del Motor de Resiliencia (Restic)
+## Fase 6: Configuración del Motor de Resiliencia (Restic)
 **Descripción:**
 Instalación e inicialización de **Restic** en los nodos de aplicación y base de datos. Se configuran las variables de entorno para conectar con la Bóveda (MinIO) y se definen las claves de encriptación (AES-256).
 
@@ -166,7 +164,7 @@ Instalación e inicialización de **Restic** en los nodos de aplicación y base 
 
 -----
 
-## 📍 Fase 7: Automatización y Planificación de Alta Frecuencia
+## Fase 7: Automatización y Planificación de Alta Frecuencia
 **Descripción:**
 Programación de **Systemd Timers** y Servicios (`.service` y `.timer`) para ejecutar los scripts de backup automáticamente. Se define la estrategia de retención (GFS) adaptada al evento (retención de minutos/horas).
 
@@ -177,7 +175,7 @@ Programación de **Systemd Timers** y Servicios (`.service` y `.timer`) para eje
 
 -----
 
-## 📍 Fase 8: Orquestación de Recuperación (DRP como Código)
+## Fase 8: Orquestación de Recuperación (DRP como Código)
 **Descripción:**
 Desarrollo de Playbooks de **Ansible** en el nodo de Control. Estos scripts contienen la lógica para detener servicios, desmontar discos, descargar copias de seguridad desde la Bóveda y restaurar el sistema a un estado operativo.
 
@@ -187,7 +185,7 @@ Desarrollo de Playbooks de **Ansible** en el nodo de Control. Estos scripts cont
 
 -----
 
-## 📍 Fase 9: Interfaz de Demostración y Control Visual
+## Fase 9: Interfaz de Demostración y Control Visual
 **Descripción:**
 Creación de scripts interactivos (Menú de Mando) y monitores de estado en tiempo real. Esto permite al operador ejecutar ataques simulados y restauraciones quirúrgicas seleccionando IDs específicos de backups.
 
