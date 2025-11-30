@@ -116,10 +116,10 @@ Configura cada VM con los siguientes parámetros críticos:
 
 | VM | Rol | RAM | CPU | Disco Principal (OS) | Discos Extra | Red |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **VM1** | `minio-vault` | 1024 MB | 2 | 25 GB (VDI Dinámico) | **+20 GB** (VDI para Backups) | NAT |
-| **VM2** | `app-node` | 1024 MB | 1 | 25 GB (VDI Dinámico) | - | NAT |
-| **VM3** | `db-node` | 1024 MB | 2 | 25 GB (VDI Dinámico) | **+10 GB** (VDI para LVM) | NAT |
-| **VM4** | `drp-control` | 1024 MB | 1 | 25 GB (VDI Dinámico) | - | NAT |
+| **VM1** | `minio-vault` | 2048 MB | 2 | 25 GB (VDI Dinámico) | **+20 GB** (VDI para Backups) | NAT |
+| **VM2** | `app-node` | 2048 MB | 1 | 25 GB (VDI Dinámico) | - | NAT |
+| **VM3** | `db-node` | 2048 MB | 2 | 25 GB (VDI Dinámico) | **+10 GB** (VDI para LVM) | NAT |
+| **VM4** | `drp-control` | 2048 MB | 1 | 25 GB (VDI Dinámico) | - | NAT |
 
 > **Nota Crítica:** En la configuración de Red de VirtualBox, debe estar en **"NAT"**. Esto aísla la VM pero le da salida a internet usando la IP de la maquina fisica.
 
@@ -272,7 +272,7 @@ sudo nano /etc/hosts
 ```
 > Es el archivo que sirve para resolver nombres de dominio de manera Local  
 
-**3. Inyectar la Inteligencia**
+**3. Agregar DNS Locales**
 Al final del archivo, pega las 4 direcciones, con el formato de [ipv4]   [nombre de servidor]
 ```text
 100.73.190.14   minio-vault
@@ -281,49 +281,28 @@ Al final del archivo, pega las 4 direcciones, con el formato de [ipv4]   [nombre
 100.66.35.17    drp-control
 ```
 
-**4. Verificación (Prueba de Fuego)**
+**4. Verificación**
 desactivando el MagicDNS de tailscale
-Desde `drp-control`, intenta hacer ping usando el nombre:
-
+Desde `drp-control` o cualquier vm, intenta hacer ping usando el nombre:
 ```bash
 ping db-node -c 2
 ```
 si funciona, entonces esta bien, puedes volver a activar MagicDNS o no, como se desee.
 En caso de que por alguna razon cambien de direccion de red solo se debe ajustar en `/etc/hosts`
 
+
+
 -----
 
-### ⚠️ Protocolo de Emergencia Real (El Verdadero "Escenario B")
+### En caso de que se requiera no usar Tailscale, o el internet se corta.
 
-¿Qué pasa si el internet de la feria se corta totalmente y **Tailscale muere**?
-
-Como configuramos las VMs en modo **NAT** (para que funcionen con Tailscale), si el túnel cae, las máquinas quedan aisladas en sus burbujas.
-Para el "Plan de Contingencia Extrema" (Sin Internet), documenta esto en tu README como **"Procedimiento Omega"**:
-
+Como configuramos las VMs en modo **NAT** (para que funcionen con Tailscale), si ya no podemos usar el tunel, las máquinas quedan aisladas
+En ese caso seguiremos esto para poder trabajar sin internet ni Tailscale, y se usara la red local LAN (Compartir la misma red de wifi, ya sea con celular o un router):
 1.  **Apagar VMs:** `sudo poweroff`.
-2.  **Cambio Físico:** En VirtualBox de cada laptop, cambiar Red de **NAT** a **Adaptador Puente (Bridged)**.
-3.  **Encender VMs:** Ahora tomarán IPs del router local de la feria (ej. `192.168.1.x`).
+2.  **Cambio Físico:** En VirtualBox de cada maquina, cambiar Red de **NAT** a **Adaptador Puente**.
+3.  **Encender VMs:** Ahora tomarán IPs del router local (ej. `192.168.1.x`).
 4.  **Actualizar Hosts:** Entras a `/etc/hosts` de nuevo y cambias las IPs `100.x` por las nuevas `192.168.x`.
-5.  **Resultado:** El sistema revive localmente sin tocar una sola línea de código de tus scripts.
-
------
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+5.  **Resultado:** Esto deberia permitir la coneccion entre los servidores, sin tener que ajustar todos los script (razon por la que usamos DNS).
 
 -----
 
