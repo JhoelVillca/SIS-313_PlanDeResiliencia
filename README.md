@@ -163,7 +163,7 @@ nosotros para esta documentacion y el proyecto trabajeremos con:
 
 ### Paso 3: Despliegue de la Red Overlay (Tailscale)
 Para trabajar este proyecto de forma remota usaremos Tailscale.
-**📋 Descripción:**
+**Descripción:**
 Instalación del cliente **Tailscale** en los 4 nodos. Tailscale es una VPN de malla (Mesh VPN) basada en el protocolo **WireGuard** (famoso por ser ligero y seguro).
 A diferencia de las VPN tradicionales que redirigen todo el tráfico a un servidor central lento, Tailscale crea túneles encriptados punto-a-punto (P2P) entre las máquinas.
 
@@ -216,7 +216,7 @@ Esto se hace para las maquinas que necesites conectar este caso solo son 4.
       * `app-node`
       * `db-node`
       * `drp-control`
-  * Esta opcion normalmente viene ya activado, pero en caso de que no ve a tailscale y  DNS>MagicDNS Y Activa la opción.
+  * Esta opcion normalmente viene ya activado, pero en caso de que no ve a tailscale y  DNS->MagicDNS Y Activa la opción.
 
 -----
 
@@ -227,13 +227,86 @@ Desde cualquier maquina por ejemplo `drp-control`, intenta contactar a la base d
 ```bash
 ping db-node -c 4
 ```
-> Deveria poder conectarte a cualquiera de las maquinas
+> Deveria poder hacer ping a cualquiera de las maquinas desde cualquiera de las maquinas en este punto.
+> y con eso tenemos nuestro DNS externo (centralizado) funcionando
+-----
 
+### Paso 4: Redundancia de Nombres (Configuración de `/etc/hosts`) (No nesesario)
+Esta es otra forma de asignar dns, solo que esta ves de forma local, que lo usaremos por si nuestro DNS externo falla por alguna razon, es completamente *opcional*. 
+En Producción: siempre se debe usar DNS (centralizado) para evitar errores administrativos.  
+En Desarrollo/Pruebas: Usa /etc/hosts (local) para simular conexiones de forma rápida y segura, en este caso como una segunda opcion.
+
+Editaremos el archivo local de resolución de nombres (`/etc/hosts`) en cada una de las 4 máquinas. Esto garantiza que el sistema sepa quién es `db-node` incluso si Tailscale MagicDNS falla.
+Además, este es el mismo archivo que editaríamos de emergencia si tuviéramos que cambiar a una red física (Cable/Switch) sin internet.
+
+**Aporte al Proyecto:**
+
+  * **Resistencia a Fallos DNS:** Si el servidor dns muere, nuestro archivo local tiene la verdad absoluta.
+  * **Velocidad:** Consultar un archivo local es más rápido que preguntar a la red.
+
+**Obtener el Mapa de Direcciones**
+Necesitas saber la IP de Tailscale de cada una de tus 4 máquinas (empiezan por `100.x.y.z`).
+Ejecuta esto en cada máquina o míralo en tu panel web de Tailscale:
+
+```bash
+tailscale ip -4
+```
+> `tailscale` Es la herramienta que estamos usando  
+> `ip` con esto le decimos a tailscale que nos muestre la ip  
+> `-4` con esto le decimos que queremos ver solo el ipv4, si ponemos `-6` nos mostrara el ipv6.    
+
+una ves veas las ip de cada maquina en mi caso: 
+
+  * `minio-vault`: `100.73.190.14`
+  * `app-node`: `100.105.30.93`
+  * `db-node`: `100.109.57.70`
+  * `drp-control`: `100.66.35.17`
+
+**2. Editar el Archivo Hosts**
+Debes hacer esto **EN LAS 4 MÁQUINAS**. El archivo debe quedar idéntico en todas.
+
+Abre el archivo:
+
+```bash
+sudo nano /etc/hosts
+```
+> Es el archivo que sirve para resolver nombres de dominio de manera Local  
+
+**3. Inyectar la Inteligencia**
+Al final del archivo, pega las 4 direcciones, con el formato de [ipv4]   [nombre de servidor]
+```text
+100.73.190.14   minio-vault
+100.105.30.93   app-node
+100.109.57.70   db-node
+100.66.35.17    drp-control
+```
+
+**4. Verificación (Prueba de Fuego)**
+desactivando el MagicDNS de tailscale
+Desde `drp-control`, intenta hacer ping usando el nombre:
+
+```bash
+ping db-node -c 2
+```
+si funciona, entonces esta bien, puedes volver a activar MagicDNS o no, como se desee.
+En caso de que por alguna razon cambien de direccion de red solo se debe ajustar en `/etc/hosts`
 
 -----
 
+### ⚠️ Protocolo de Emergencia Real (El Verdadero "Escenario B")
 
+¿Qué pasa si el internet de la feria se corta totalmente y **Tailscale muere**?
 
+Como configuramos las VMs en modo **NAT** (para que funcionen con Tailscale), si el túnel cae, las máquinas quedan aisladas en sus burbujas.
+Para el "Plan de Contingencia Extrema" (Sin Internet), documenta esto en tu README como **"Procedimiento Omega"**:
+
+1.  **Apagar VMs:** `sudo poweroff`.
+2.  **Cambio Físico:** En VirtualBox de cada laptop, cambiar Red de **NAT** a **Adaptador Puente (Bridged)**.
+3.  **Encender VMs:** Ahora tomarán IPs del router local de la feria (ej. `192.168.1.x`).
+4.  **Actualizar Hosts:** Entras a `/etc/hosts` de nuevo y cambias las IPs `100.x` por las nuevas `192.168.x`.
+5.  **Resultado:** El sistema revive localmente sin tocar una sola línea de código de tus scripts.
+
+-----
 
 
 
