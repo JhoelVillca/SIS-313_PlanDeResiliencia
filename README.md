@@ -528,7 +528,7 @@ docker logs minio
 
 Ahora vamos a probar si la Bóveda es accesible desde fuera.
 
-1.  Abre el navegador en tu **Laptop Física**.
+1.  Abre el navegador desde una **Laptop Física** que este conectado a tailscale.
 2.  Navega a `http://minio-vault:9001`, devido al dns que configuramos deberia funcionar o tambien puedes escribir la dirección IP de Tailscale de la VM1 (la que pusimos en `/etc/hosts` como `minio-vault`):
     `http://100.73.190.14:9001`.
 3.  Deberías ver la pantalla de login de MinIO.
@@ -536,17 +536,96 @@ Ahora vamos a probar si la Bóveda es accesible desde fuera.
 5.  Ingresa con `admin` y `SuperSecretKey123`.
    ![minio-vault_Dashboard1](Imagenes/minio-vault_Dashboard1.png)
 
-Si ves el dashboard rojo/rosado de MinIO, **Fase 3 Completada al 90%**.
-(Falta configurar el cliente `mc` para crear los buckets, que haremos en el siguiente paso).
+Si ves el dashboard de MinIO, esta bien.
 
-¿Lograste entrar a la consola web? Di **"MinIO Operativo"**.
+-----
 
+### Paso 3: Configuración del Cliente y Creación del Bucket
 
+Haremos esto desde la **Maquina `drp-control`**, porque el Cerebro debe ser capaz de administrar la Bóveda remotamente.
 
+**Ubicación:** Ejecutar en **VM (`drp-control`)**.
+**Objetivo:** Instalar el cliente de MinIO (`mc`), conectar remotamente con la VM1 y crear el bucket `backup-repo` donde guardaremos todo.
 
+#### 1\. Descargar el binario `mc`
 
+Es una herramienta ligera, no requiere instalación compleja.
+mc es el MinIO Client, una herramienta de línea de comandos, que permite Conectarte al servidor MinIO, Crear buckets, Subir y descargar archivos, Administrar usuarios y políticas.
+```bash
+curl https://dl.min.io/client/mc/release/linux-amd64/mc \
+  --create-dirs \
+  -o $HOME/minio-binaries/mc
+```
+> `curl https://dl.min.io/client/mc/release/linux-amd64/mc` Usa curl para descargar el archivo binario del cliente MinIO (mc) desde la URL oficial. Este binario está compilado para Linux 64 bits (amd64).  
+> `--create-dirs` Le dice a curl que cree las carpetas necesarias si no existen. En este caso, si la carpeta `$HOME/minio-binaries/` no existe, la crea automáticamente.
+> `-o $HOME/minio-binaries/mc` Guarda el archivo descargado con el nombre mc dentro de la carpeta `~/minio-binaries/`.
+> `$HOME` es la carpeta principal.
 
+#### 2\. Hacerlo ejecutable
 
+Linux no deja correr cosas descargadas de internet por seguridad, a menos que le des permiso explícito.
+
+```bash
+chmod +x $HOME/minio-binaries/mc
+```
+> `chmod` cambia los permisos de un archivo.
+> `+x` le da el permiso de ser un programa ejcutable.
+> `$HOME/minio-binaries/mc` Es la ruta de nuestro mc.  
+
+#### 3\. Agregarlo al "Path"
+
+Para poder escribir `mc` en cualquier carpeta en lugar de `/home/admin-drp/minio-binaries/mc`
+
+```bash
+nano ~/.bashrc
+```
+Este es el archivo que se encarga de los variables de entorno, atajos de comandos largos, funciones personalisadas, etc. 
+dentro, al final pondremos 
+```bash
+export PATH=$PATH:$HOME/minio-binaries/
+```
+y para recargar el archivo (la nueva configuracion)
+```bash
+source ~/.bashrc
+```
+
+#### 4\. Conectar el Cliente con la Bóveda 
+
+Aquí usamos el hostname `minio-vault`, se puede usar la ip, pero es mejor hacerlo usando el dns, por que si cambiamos de ip esto podria romperse.
+
+```bash
+mc alias set mi-boveda http://minio-vault:9000 admin SuperSecretKey123
+```
+> `mc alias set` Es para crear un alias que represente el servidor MinIO, para no escribir el URL y las credenciales cada vez que usemos `mc`.
+> `mi-boveda` es el alias que le asignamos a nuestro servidor, que luego podremos usar comandos como `mc ls mi-boveda`.
+> `http://minio-vault:9000` es la direccion del servidor MinIO.
+> `admin SuperSecretKey123` son las credenciales que definimos antes.
+
+> **Traducción:** *"Cliente `mc`, crea un alias (un atajo) llamado `mi-boveda`. Conéctate al servidor `minio-vault` en el puerto de API 9000 usando estas credenciales."*
+> **Resultado esperado:** `Added 'mi-boveda' successfully.`
+
+#### 5\. Crear el Bucket
+
+Creamos el contenedor lógico donde Restic guardará los datos.
+
+```bash
+mc mb mi-boveda/backup-repo
+```
+> `mc` es el cliente de MinIO. 
+> **Traducción:** **m**ake **b**ucket en `mi-boveda` llamado `backup-repo`.  
+> **Resultado esperado:** `Bucket created successfully 'mi-boveda/backup-repo'.`
+> Es decir crea un bucket llamado backup-repo en el servidor MinIO (alias mi-boveda) para que empieces a guardar los respaldos.
+
+#### 6\. Verificación 
+
+Listamos el contenido para asegurarnos de que existe.
+
+```bash
+mc ls mi-boveda
+```
+> nos muestra la lista de los buckets que tenemos en nuestro servidor MinIO (mi-boveda).
+> Deveria aparecer `backup-repo/` en la terminal.
+tambien lo puedes verificar entrando a `http://minio-vault:9000` , despues de iniciar secion deveria aparecer el bucket en el dashboard.
 
 
 
