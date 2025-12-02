@@ -1320,37 +1320,72 @@ restic backup /var/www/html --tag "prueba-manual"
 > Y estadísticas como: `Files: 2, New: 100%`.
 Hasta este punto ya tenemos para sacar snapshop a la pagina, aun no de la base de datos.
 
+-----
 
+### Paso 4: Creación del Script de Backup DB 
 
+**Ubicación:** Ejecutar en **El servidor encargado de `db-node`**.
+**Objetivo:** Crear un script que congele la base de datos (LVM Snapshot), la copie a MinIO y luego descongele el disco.
 
+#### 1\. Crear el archivo del script
 
+Vamos a ponerlo en `/usr/local/bin` para que sea accesible por el sistema.
 
+```bash
+sudo nano /usr/local/bin/backup_db.sh
+```
 
+#### 2\. El script para el backup
 
+Copia y pega este contenido.
 
+```bash
+#!/bin/bash
+set -e
 
+export AWS_ACCESS_KEY_ID="admin"
+export AWS_SECRET_ACCESS_KEY="SuperSecretKey123"
+export RESTIC_REPOSITORY="s3:http://minio-vault:9000/backup-repo"
+export RESTIC_PASSWORD="HolaMundo"
 
+VG_NAME="vg_datos"
+LV_NAME="lv_mysql"
+SNAP_NAME="snap_backup"
+MOUNT_POINT="/mnt/snapshot_db"
 
+echo "Creando snapshot LVM..."
+lvcreate -L 500M -s -n $SNAP_NAME /dev/$VG_NAME/$LV_NAME
 
+echo "Montando snapshot en modo lectura..."
+mkdir -p $MOUNT_POINT
+mount -o ro /dev/$VG_NAME/$SNAP_NAME $MOUNT_POINT
 
+echo "Ejecutando backup con Restic..."
+restic backup $MOUNT_POINT --tag "db-consistent-snap"
 
+echo "Eliminando snapshot temporal..."
+umount $MOUNT_POINT
+lvremove -y /dev/$VG_NAME/$SNAP_NAME
 
+echo "Backup consistente completado."
+```
+#### 3\. Hacerlo ejecutable
 
+Convertimos el texto en un ejecutable.
 
+```bash
+sudo chmod +x /usr/local/bin/backup_db.sh
+```
 
+-----
 
+### Prueba(Base de Datos)
 
+Ahora sí, vamos a respaldar los datos. Ejecuta el script manualmente:
 
-
-
-
-
-
-
-
-
-
-
+```bash
+sudo /usr/local/bin/backup_db.sh
+```
 
 -----
 
@@ -1362,6 +1397,202 @@ Programación de **Systemd Timers** y Servicios (`.service` y `.timer`) para eje
 * Eliminar el error humano en la ejecución de backups.
 * Establecer un **RPO (Recovery Point Objective)** cercano a cero, realizando copias de seguridad cada minuto de forma transparente.
 * Gestionar el ciclo de vida de los datos (borrado automático de backups obsoletos).
+
+#### 1\. Crear el Archivo de Servicio (.service)
+
+Este archivo le dice a Linux *QUÉ* ejecutar.
+
+```bash
+sudo nano /etc/systemd/system/backup-db.service
+```
+
+Pega este contenido:
+
+```ini
+[Unit]
+Description=Restic Backup para MariaDB (LVM Snapshot)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/backup_db.sh
+User=root
+```
+
+*(Usamos `User=root` porque necesitamos permisos para crear snapshots LVM).*
+
+#### 2\. Crear el Archivo de Tiempo (.timer)
+
+Este archivo le dice a Linux *CUÁNDO* ejecutarlo.
+
+```bash
+sudo nano /etc/systemd/system/backup-db.timer
+```
+
+Pega este contenido:
+
+```ini
+[Unit]
+Description=Ejecuta backup de DB cada minuto (Modo Feria)
+
+[Timer]
+# Ejecutar cada minuto (:00, :01, :02...)
+OnCalendar=*:*
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+#### 3\. Encender la Maquinaria
+
+Recargamos el demonio de Systemd para que lea los nuevos archivos y activamos el reloj.
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now backup-db.timer
+```
+
+#### 4\. Verificación
+
+Comprueba que el cronómetro está corriendo.
+
+```bash
+systemctl list-timers --all | grep backup
+```
+
+> **Resultado:** Deberías ver `backup-db.timer` y en la columna "LEFT" debería decir algo como `30s left` (tiempo para el próximo disparo).
+
+-----
+
+### 🟢 Fase 7 - Paso 2: Creación del Script y Automatización en App Node (VM2)
+
+**Ubicación:** Ejecutar en **VM2 (`app-node`)**.
+**Objetivo:** Primero debemos crear el script de backup (que aún no existe, solo hicimos pruebas manuales) y luego automatizarlo.
+
+#### 1\. Crear el Script de Backup (con Retención)
+
+Aquí incluiremos el comando `forget` para borrar backups viejos automáticamente, cumpliendo el requisito de "Gestión del ciclo de vida".
+
+```bash
+sudo nano /usr/local/bin/backup_app.sh
+```
+
+Pega este código (ajustado para la demo):
+
+```bash
+#!/bin/bash
+set -e
+
+# --- CONFIGURACIÓN ---
+export AWS_ACCESS_KEY_ID="admin"
+export AWS_SECRET_ACCESS_KEY="SuperSecretKey123"
+export RESTIC_REPOSITORY="s3:http://minio-vault:9000/backup-repo"
+export RESTIC_PASSWORD="HolaMundo"
+
+# 1. El Backup (La Foto)
+echo "📸 Iniciando backup de App..."
+restic backup /var/www/html --tag "app-auto"
+
+# 2. La Limpieza (El Reciclaje)
+# Mantenemos solo los últimos 20 snapshots para no saturar la demo
+echo "♻️ Aplicando política de retención..."
+restic forget --keep-last 20 --prune
+```
+
+#### 2\. Hacerlo ejecutable
+
+```bash
+sudo chmod +x /usr/local/bin/backup_app.sh
+```
+
+#### 3\. Crear el Servicio (.service)
+
+```bash
+sudo nano /etc/systemd/system/backup-app.service
+```
+
+Contenido:
+
+```ini
+[Unit]
+Description=Restic Backup para Web App
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/backup_app.sh
+User=root
+```
+
+#### 4\. Crear el Timer (.timer)
+
+```bash
+sudo nano /etc/systemd/system/backup-app.timer
+```
+
+Contenido:
+
+```ini
+[Unit]
+Description=Ejecuta backup de App cada minuto
+
+[Timer]
+OnCalendar=*:*
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+#### 5\. Activar
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now backup-app.timer
+```
+
+-----
+
+### ⚠️ Verificación Final de la Fase 7
+
+Espera 1 o 2 minutos. Luego, ve a tu **VM4 (`drp-control`)** (el Cerebro) y pregunta a la Bóveda qué hay de nuevo.
+
+En **VM4**, ejecuta:
+
+```bash
+mc ls -r mi-boveda/backup-repo/snapshots/
+```
+
+Si ves una lista de archivos que crece cada minuto (con horas diferentes), **FELICIDADES**.
+Has construido un sistema vivo que se protege a sí mismo.
+
+¿Los timers están corriendo y ves los snapshots multiplicándose en la VM4?
+Di **"Sistema Automático Operativo"** y pasamos a la **Fase 8: El Rescate (Ansible)**.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 -----
 
